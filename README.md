@@ -5,14 +5,14 @@ A comprehensive healthcare platform providing patient booking, AI-generated visi
 ## Features
 - **Role-Based Portals**: Admin, Doctor, and Patient access.
 - **Double-booking Prevention**: Transactional slot booking with row-level locks and partial unique indexing.
-- **AI Integration**: Anthropic (Claude) API analyzes symptoms and auto-generates clinical notes summaries.
-- **Background Jobs**: BullMQ and Redis ensure reliable delivery of email notifications and Google Calendar syncs.
+- **AI Integration**: Anthropic (Claude) API analyzes symptoms (pre-visit) and generates patient-friendly summaries (post-visit).
+- **Background Jobs**: **n8n** Webhook Integration to automate email notifications, calendar syncs, and medication reminders.
 - **Modern UI**: React and Vite with TailwindCSS, utilizing a dark-themed CRM template.
 
 ## Tech Stack
-- **Backend**: Node.js, Express, PostgreSQL, BullMQ, Redis.
+- **Backend**: Node.js, Express, PostgreSQL, Axios.
 - **Frontend**: React, Vite, Tailwind CSS.
-- **Integrations**: Anthropic API, Nodemailer, Google Calendar API.
+- **Integrations**: Anthropic API, n8n (Webhooks for Google Calendar & Nodemailer).
 
 ## Setup Instructions
 

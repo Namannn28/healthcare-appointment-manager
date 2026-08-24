@@ -6,6 +6,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || 'dummy_key',
 });
 
+// Pre-visit Summary
 const analyzeSymptoms = async (appointmentId, symptoms) => {
   try {
     await db.query("UPDATE appointments SET pre_visit_status = 'pending' WHERE id = $1", [appointmentId]);
@@ -15,7 +16,7 @@ const analyzeSymptoms = async (appointmentId, symptoms) => {
       max_tokens: 300,
       system: "You are a medical assistant. Output only a JSON with keys: urgency (Low/Medium/High), chiefComplaint, questions (array of 3 strings).",
       messages: [
-        { "role": "user", "content": `Symptoms: ${symptoms}` }
+        { "role": "user", "content": `Analyse these symptoms and return urgency level, chief complaint, and three suggested questions for the doctor. Symptoms: ${symptoms}` }
       ]
     });
 
@@ -26,11 +27,34 @@ const analyzeSymptoms = async (appointmentId, symptoms) => {
       [resultText, appointmentId]
     );
   } catch (error) {
-    console.error('LLM Failure:', error);
-    // Fallback handled here
+    console.error('LLM Pre-visit Failure:', error);
     await db.query("UPDATE appointments SET pre_visit_status = 'failed' WHERE id = $1", [appointmentId]);
-    // Would enqueue a retry job here for exponential backoff if this wasn't just a prototype
   }
 };
 
-module.exports = { analyzeSymptoms };
+// Post-visit Summary
+const generatePostVisitSummary = async (appointmentId, clinicalNotes) => {
+  try {
+    const msg = await anthropic.messages.create({
+      model: "claude-3-haiku-20240307",
+      max_tokens: 500,
+      system: "You are a helpful medical assistant.",
+      messages: [
+        { "role": "user", "content": `Convert these clinical notes into a patient-friendly summary with medication schedule and follow-up steps: ${clinicalNotes}` }
+      ]
+    });
+
+    const resultText = msg.content[0].text;
+
+    await db.query(
+      "UPDATE appointments SET post_visit_summary = $1 WHERE id = $2",
+      [resultText, appointmentId]
+    );
+    return resultText;
+  } catch (error) {
+    console.error('LLM Post-visit Failure:', error);
+    throw new Error('Failed to generate post-visit summary. Please rely on raw clinical notes.');
+  }
+};
+
+module.exports = { analyzeSymptoms, generatePostVisitSummary };

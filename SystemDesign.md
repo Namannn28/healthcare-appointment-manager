@@ -14,6 +14,6 @@ When an Admin marks a leave on a specific date for a doctor:
 
 ## 3. Notification & Failure Handling
 All external communications (Emails, Google Calendar, LLM) are fragile and prone to latency/timeouts.
-- **Reliability via BullMQ**: The Express request handler doesn't block waiting for an email to send. Instead, it inserts a job row into PostgreSQL and adds it to the Redis queue. 
-- **Retry Strategy**: The BullMQ worker implements exponential backoff retries (up to 3 attempts). If it continuously fails, the database job row is marked `failed` for manual intervention.
-- **LLM Failure Degradation**: The Anthropic API call is wrapped in a `try/catch`. On failure, the AI summary is marked as `failed`, allowing the React UI to degrade gracefully and show the raw symptoms/notes instead.
+- **Reliability via n8n Automation**: The Express request handler doesn't block waiting for an email to send. Instead, it fires an HTTP POST request to an **n8n Webhook**, which handles the actual email and calendar API interactions via its visual node workflow. We log the job in `notifications_job` before calling the webhook so we have an audit trail.
+- **Retry Strategy**: n8n workflows can be configured to retry failed nodes. If the webhook call itself fails (e.g. n8n is down), the backend increments an `attempts` counter in the database.
+- **LLM Failure Degradation**: The Anthropic API call for both Pre-visit and Post-visit summaries is wrapped in a `try/catch`. On failure, the AI summary is marked as `failed`, allowing the React UI to degrade gracefully and show the raw symptoms/notes instead.

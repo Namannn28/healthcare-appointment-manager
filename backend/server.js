@@ -5,8 +5,8 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const db = require('./db');
-const { addNotificationJob } = require('./queue');
-const { analyzeSymptoms } = require('./llm');
+const { triggerN8nWebhook } = require('./n8n');
+const { analyzeSymptoms, generatePostVisitSummary } = require('./llm');
 
 const app = express();
 app.use(cors());
@@ -144,13 +144,11 @@ app.post('/api/appointments/:id/confirm', authenticateToken, requireRole('patien
 
     // Send async request to LLM for pre-visit summary
     if (appt.symptoms) {
-      // Async handling so it doesn't block confirmation
       analyzeSymptoms(appointmentId, appt.symptoms).catch(console.error);
     }
 
-    // Queue email & calendar notifications
-    await addNotificationJob('email', { type: 'confirmation', appointmentId });
-    await addNotificationJob('calendar', { type: 'create', appointmentId });
+    // Trigger n8n webhook for automation (calendar, email)
+    await triggerN8nWebhook('booking_confirmed', { appointmentId });
 
     await client.query('COMMIT');
     res.json({ message: 'Appointment confirmed successfully' });
@@ -185,9 +183,9 @@ app.post('/api/admin/leave', authenticateToken, requireRole('admin'), async (req
         WHERE doctor_id = $1 AND DATE(slot_start) = $2 AND status = 'booked'
       `, [doctorId, date]);
       
-      // Enqueue cancellation emails
+      // Enqueue cancellation emails via n8n
       for (const row of affected.rows) {
-        await addNotificationJob('email', { type: 'leave_cancellation', appointmentId: row.id });
+        await triggerN8nWebhook('leave_cancellation', { appointmentId: row.id });
       }
     }
 
@@ -198,6 +196,32 @@ app.post('/api/admin/leave', authenticateToken, requireRole('admin'), async (req
     res.status(500).json({ error: 'Failed to mark leave' });
   } finally {
     client.release();
+  }
+});
+
+// Doctors: Submit Post-visit Notes
+app.post('/api/appointments/:id/post-visit', authenticateToken, requireRole('doctor'), async (req, res) => {
+  const appointmentId = req.params.id;
+  const { clinicalNotes, prescription } = req.body;
+  const doctorId = req.user.profileId;
+
+  try {
+    // Save notes
+    await db.query(
+      "UPDATE appointments SET post_visit_notes = $1, prescription = $2, status = 'completed' WHERE id = $3 AND doctor_id = $4",
+      [clinicalNotes, prescription, appointmentId, doctorId]
+    );
+
+    // Generate patient-friendly post-visit summary via LLM
+    const summary = await generatePostVisitSummary(appointmentId, clinicalNotes);
+    
+    // Send to n8n to handle medication reminders and sending summary to patient
+    await triggerN8nWebhook('post_visit_complete', { appointmentId, prescription, summary });
+
+    res.json({ message: 'Post-visit notes saved successfully', summary });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to save post-visit notes' });
   }
 });
 
@@ -219,4 +243,4 @@ app.get('/api/appointments/today', authenticateToken, requireRole('doctor'), asy
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`));
